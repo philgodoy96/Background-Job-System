@@ -1,15 +1,16 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+import logging
+
+from fastapi import FastAPI
 
 from app.core.config import get_settings
-from app.core.errors import AppError
-from app.core.logging import configure_logging, get_logger
+from app.observability.events import LogEvent
+from app.observability.logging import configure_logging, get_logger, log_event
 
 
 configure_logging()
 
-logger = get_logger(__name__)
 settings = get_settings()
+logger = get_logger(__name__)
 
 
 app = FastAPI(
@@ -18,33 +19,35 @@ app = FastAPI(
 )
 
 
-@app.exception_handler(AppError)
-async def app_error_handler(
-    request: Request,
-    exc: AppError,
-) -> JSONResponse:
+@app.on_event("startup")
+def on_startup() -> None:
     """
-    Convert expected application errors into structured HTTP responses.
+    Application startup hook.
     """
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": {
-                "code": exc.error_code,
-                "message": exc.message,
-            }
-        },
+    log_event(
+        logger,
+        logging.INFO,
+        LogEvent.APP_STARTED,
+        service=settings.app_name,
+        environment=settings.environment,
     )
 
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """
-    Basic health endpoint.
+    Health check endpoint.
 
-    This only proves that the API process is running.
-    It does not prove that the database or workers are healthy.
+    This endpoint verifies that the API process is running.
+    It does not check database connectivity yet.
     """
+    log_event(
+        logger,
+        logging.INFO,
+        LogEvent.HEALTH_CHECK_CALLED,
+        service=settings.app_name,
+    )
+
     return {
         "status": "ok",
         "service": settings.app_name,
