@@ -1,8 +1,11 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
+from app.api.routes import jobs, metrics
 from app.core.config import get_settings
+from app.core.errors import AppError, ConflictError, NotFoundError, ValidationError
 from app.observability.events import LogEvent
 from app.observability.logging import configure_logging, get_logger, log_event
 
@@ -33,6 +36,34 @@ def on_startup() -> None:
     )
 
 
+@app.exception_handler(AppError)
+def handle_app_error(
+    request: Request,
+    exc: AppError,
+) -> JSONResponse:
+    """
+    Translate application errors into HTTP responses.
+    """
+    status_code = 500
+
+    if isinstance(exc, ValidationError):
+        status_code = 400
+    elif isinstance(exc, NotFoundError):
+        status_code = 404
+    elif isinstance(exc, ConflictError):
+        status_code = 409
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+            }
+        },
+    )
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """
@@ -53,3 +84,7 @@ def health_check() -> dict[str, str]:
         "service": settings.app_name,
         "environment": settings.environment,
     }
+
+
+app.include_router(jobs.router)
+app.include_router(metrics.router)
